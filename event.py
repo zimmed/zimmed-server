@@ -54,7 +54,7 @@ class SocketDisconnectEvent(SocketEvent):
 class SocketDataEvent(SocketEvent):
 
     def __init__(self, client_id, message):
-        etype = 'default'
+        etype = 'invalid'
         data = json_decode(message)
         if 'message' in data.iterkeys():
             etype = data['message']

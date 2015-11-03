@@ -40,6 +40,9 @@ class SocketHandler(tornado.websocket.WebSocketHandler):
     def on_message(self, message):
         self.server.on_message(self, message)
 
+    def check_origin(self, _):
+        return True
+
     @property
     def server(self):
         if not self.__class__.server:
@@ -47,6 +50,9 @@ class SocketHandler(tornado.websocket.WebSocketHandler):
         return self.__class__._server
 
 
+class RestHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.send_error(404)
 
 
 class SocketServer(object):
@@ -130,7 +136,9 @@ class SocketServer(object):
 
     @classmethod
     def listen_loop(cls, ref):
-        ref.app = tornado.web.Application([(r"/", ref.handler)])
+        ref.app = tornado.web.Application([
+            (r"/", ref.rest_handler),
+            (r"/ws", ref.socket_handler)])
         ref.app.listen(ref.port)
         tornado.ioloop.IOLoop.current().start()
         while ref.app:
@@ -148,13 +156,14 @@ class SocketServer(object):
                     elif action['method'] is 'kill':
                         ref.app = None
 
-    def __init__(self, address='localhost', port='27016'):
+    def __init__(self, address='127.0.0.1', port='27016'):
         if self.__class__._instance:
             raise RuntimeError("Re-instantiation of singleton object.")
         self.__class__._instance = self
         self.address, self.port = address, port
-        self.handler = SocketHandler
-        self.handler.set_server(self.__class__)
+        self.socket_handler = SocketHandler
+        self.socket_handler.set_server(self.__class__)
+        self.rest_handler = RestHandler
         self._clients = {}
         self.app = None
 
