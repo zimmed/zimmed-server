@@ -57,7 +57,7 @@ class SocketDataEvent(SocketEvent):
         etype = 'invalid'
         data = json_decode(message)
         if 'message' in data.iterkeys():
-            etype = data['message']
-            del data['message']
+            etype = data['type']
+            del data['type']
         super(SocketDataEvent, self).__init__(etype, client_id, **data)
 
