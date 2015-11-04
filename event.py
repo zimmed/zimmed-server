@@ -3,7 +3,11 @@
 .. moduleauthor:: Dave Zimmelman <zimmed@zimmed.io>
 
 Exports:
-
+    :class SocketEvent
+    :class SocketConnectEvent
+    :class SocketDisconnectEvent
+    :class SocketDataEvent
+    :class SocketServerEvent
 """
 
 from core.dotdict import ImmutableDotDict
@@ -11,6 +15,21 @@ from tornado.escape import json_decode, json_encode
 
 
 class SocketEvent(object):
+    """base SocketEvent
+
+    Init Params:
+        etype -- The type of the event.
+        client_id -- The socket client identifier.
+        kwargs -- Event data.
+
+    Properties:
+        :type type: str -- Event type
+        :type client: str -- Client ID
+        :type data: ImmutableDotDict -- The event data.
+
+    Methods:
+        json -- Get JSON representation of event.
+    """
 
     def __init__(self, etype, client_id, **kwargs):
         self.type, self.client, self.data = etype, client_id, {}
@@ -30,7 +49,7 @@ class SocketEvent(object):
 
     def json(self):
         d = dict(self.data)
-        self.data['message'] = self.type
+        self.data['type'] = self.type
         if self.client:
             self.data['client'] = self.client
         return json_encode(d)
@@ -56,8 +75,14 @@ class SocketDataEvent(SocketEvent):
     def __init__(self, client_id, message):
         etype = 'invalid'
         data = json_decode(message)
-        if 'message' in data.iterkeys():
+        if 'type' in data.iterkeys():
             etype = data['type']
             del data['type']
         super(SocketDataEvent, self).__init__(etype, client_id, **data)
+
+
+class SocketServerEvent(SocketEvent):
+
+    def __init__(self, etype, **kwargs):
+        super(SocketServerEvent, self).__init__(etype, None, **kwargs)
 

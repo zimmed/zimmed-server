@@ -14,6 +14,28 @@ import time
 
 
 class EventRouter(object):
+    """EventRouter for handling SocketEvents queued by an EventServer.
+
+    Note:
+        Do not initialize.
+
+    Usage:
+        See EventServer class.
+
+    Class Properties:
+        :type listening: bool -- Whether or not the router is currently
+            listening for events.
+
+    Class Methods:
+        on -- Add new event listener.
+        off -- Remove all event handlers for given event type.
+        off_last -- Remove the last-added event handler for the given
+            event type.
+        listen_sync -- Listen to events synchronously (blocking).
+        listen_async -- Start async listen thread. (non-blocking).
+        listen_async_stop -- Stop async listen thread.
+
+    """
 
     _routers = {}
     _listening = False
@@ -44,12 +66,23 @@ class EventRouter(object):
 
     @classmethod
     def on(cls, event_type, method, *args):
+        """Add new event listener.
+
+        :param event_type: str -- The name of the event. This is sent from
+            the client in the 'type' field of the JSON object.
+        :param method: callable (event, *args) -- The handler function.
+        :param args: list -- Additional args to pass to method.
+        """
         if event_type not in cls._routers.iterkeys():
             cls._routers[event_type] = []
         cls._routers[event_type].append(cls.Router(method, *args))
 
     @classmethod
     def off(cls, event_type):
+        """Remove all event listeners for type.
+
+        :param event_type: str -- Name of event type.
+        """
         try:
             del cls._routers[event_type]
         except KeyError:
@@ -57,6 +90,10 @@ class EventRouter(object):
 
     @classmethod
     def off_last(cls, event_type):
+        """Remove only the most-recently added listener.
+
+        :param event_type: str -- Event type
+        """
         try:
             if len(cls._routers[event_type]) > 1:
                 cls._routers.pop()
@@ -64,17 +101,13 @@ class EventRouter(object):
             pass
 
     @classmethod
-    def handle(cls, event):
-        event_type = event.type
-        try:
-            stack = list(cls._routers[event_type])
-            do = stack.pop()
-            do(event, stack)
-        except (KeyError, IndexError):
-            pass
-
-    @classmethod
     def listen_sync(cls, **kwargs):
+        """Listen to and handle events produced by the EventServer.
+
+        This is a synchronous function and will block by default.
+
+        :param kwargs: expects `empty` and `get` methods.
+        """
         if 'get' not in kwargs.iterkeys() or 'empty' not in kwargs.iterkeys():
             raise KeyError('`get` and `empty` params required for listening.')
         get = kwargs['get']
@@ -89,6 +122,10 @@ class EventRouter(object):
 
     @classmethod
     def listen_async(cls, **kwargs):
+        """Runs listen_sync in separate thread. Non-blocking.
+
+        :param kwargs: Same as listen_sync
+        """
         cls._thread_event = threading.Event()
         kwargs.update(t_event=cls._thread_event)
         cls._thread = threading.Thread(target=cls.listen_sync, kwargs=kwargs)
@@ -97,6 +134,7 @@ class EventRouter(object):
 
     @classmethod
     def listen_async_stop(cls):
+        """Stop async listen thread."""
         if not cls.listening:
             raise RuntimeError("Router already not listening.")
         cls._listening = False
@@ -104,6 +142,16 @@ class EventRouter(object):
             time.sleep(0.1)
         cls._thread_event = None
         cls._thread = None
+
+    @classmethod
+    def handle(cls, event):
+        event_type = event.type
+        try:
+            stack = list(cls._routers[event_type])
+            do = stack.pop()
+            do(event, stack)
+        except (KeyError, IndexError):
+            pass
 
     def __init__(self, *args, **kwargs):
         raise InitError("EventRouter is not to be initialized.")

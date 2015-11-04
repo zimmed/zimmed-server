@@ -1,5 +1,7 @@
 """Web socket server.
 
+This module is mostly abstracted by the other server modules.
+
 .. moduleauthor:: Dave Zimmelman <zimmed@zimmed.io>
 
 Exports:
@@ -104,10 +106,20 @@ class SocketServer(object):
         })
 
     @classmethod
-    def broadcast(cls, client_ids, message):
+    def broadcast(cls, message, include=None, exclude=None):
+        clients = None
+        ex = False
+        if include and exclude:
+            clients = [x for x in include if x not in exclude]
+        elif include and not exclude:
+            clients = include
+        elif exclude:
+            clients = exclude
+            ex = True
         cls._in_queue.put({
             'method': 'broadcast',
-            'client_ids': client_ids,
+            'clients': clients,
+            'exclude': ex,
             'message': message
         })
 
@@ -149,8 +161,9 @@ class SocketServer(object):
                         ref.send(action['client_id'],
                                  action['message'])
                     elif action['method'] is 'broadcast':
-                        ref.send_all(action['client_ids'],
-                                     action['message'])
+                        ref.send_all(action['clients'],
+                                     action['message'],
+                                     action['exclude'])
                     elif action['method'] is 'disconnect':
                         ref.close_client(action['client_id'])
                     elif action['method'] is 'kill':
@@ -174,10 +187,14 @@ class SocketServer(object):
         else:
             logging.warn('Could not send message to client: ' + client_id)
 
-    def send_all(self, client_ids, message):
+    def send_all(self, client_ids, message, exclude):
+        clients = client_ids
         if not client_ids:
-            client_ids = [k for k in self._clients.iterkeys()]
-        for cid in client_ids:
+            clients = [k for k in self._clients.iterkeys()]
+        elif client_ids and exclude:
+            clients = [k for k in self._clients.iterkeys()
+                       if k not in client_ids]
+        for cid in clients:
             self.send(cid, message)
 
     def get_client(self, client_id):
