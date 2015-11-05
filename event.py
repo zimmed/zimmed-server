@@ -54,6 +54,9 @@ class SocketEvent(object):
             self.data['client'] = self.client
         return json_encode(d)
 
+    def ok_response(self, **kwargs):
+        return SocketServerEvent(self.type, **kwargs)
+
     def __str__(self):
         return self.json()
 
@@ -84,5 +87,6 @@ class SocketDataEvent(SocketEvent):
 class SocketServerEvent(SocketEvent):
 
     def __init__(self, etype, **kwargs):
+        kwargs['status'] = 200
         super(SocketServerEvent, self).__init__(etype, None, **kwargs)
 

@@ -9,6 +9,7 @@ Exports:
 
 from core.decorators import classproperty
 from core.exceptions import InitError
+from .exception import HTTPError
 import threading
 import time
 
@@ -72,63 +73,70 @@ class EventRouter(object):
             the client in the 'type' field of the JSON object.
         :param method: callable (event, *args) -- The handler function.
         :param args: list -- Additional args to pass to method.
+        :return: cls (Cascading)
         """
         if event_type not in cls._routers.iterkeys():
             cls._routers[event_type] = []
         cls._routers[event_type].append(cls.Router(method, *args))
+        return cls
 
     @classmethod
     def off(cls, event_type):
         """Remove all event listeners for type.
 
         :param event_type: str -- Name of event type.
+        :return: cls (Cascading)
         """
         try:
             del cls._routers[event_type]
         except KeyError:
             pass
+        return cls
 
     @classmethod
     def off_last(cls, event_type):
         """Remove only the most-recently added listener.
 
         :param event_type: str -- Event type
+        :return: cls (Cascading)
         """
         try:
             if len(cls._routers[event_type]) > 1:
                 cls._routers.pop()
         except KeyError:
             pass
+        return cls
 
     @classmethod
-    def listen_sync(cls, **kwargs):
+    def listen_sync(cls, event_server, t_event=None):
         """Listen to and handle events produced by the EventServer.
 
         This is a synchronous function and will block by default.
 
-        :param kwargs: expects `empty` and `get` methods.
+        :param event_server: EventServer class
+        :param t_event: threading.Event | None -- Optional event for
+            monitoring threaded loop state.
         """
-        if 'get' not in kwargs.iterkeys() or 'empty' not in kwargs.iterkeys():
-            raise KeyError('`get` and `empty` params required for listening.')
-        get = kwargs['get']
-        empty = kwargs['empty']
+        get = event_server.get_event
+        empty = event_server.is_empty
         cls._listening = True
         while cls._listening:
             if not empty():
                 event = get()
-                cls.handle(event)
-        if 't_event' in kwargs.iterkeys():
-            kwargs['t_event'].set()
+                cls.handle(event, event_server)
+            time.sleep(0.01)
+        if t_event:
+            t_event.set()
 
     @classmethod
-    def listen_async(cls, **kwargs):
+    def listen_async(cls, event_server):
         """Runs listen_sync in separate thread. Non-blocking.
 
-        :param kwargs: Same as listen_sync
+        :param event_server: EventServer class
         """
         cls._thread_event = threading.Event()
-        kwargs.update(t_event=cls._thread_event)
-        cls._thread = threading.Thread(target=cls.listen_sync, kwargs=kwargs)
+        cls._thread = threading.Thread(target=cls.listen_sync,
+                                       args=(event_server, cls._thread_event))
         cls._thread.daemon = True
         cls._thread.start()
 
@@ -144,14 +152,16 @@ class EventRouter(object):
         cls._thread = None
 
     @classmethod
-    def handle(cls, event):
+    def handle(cls, event, event_server):
         event_type = event.type
-        try:
+        if event_type in cls._routers:
             stack = list(cls._routers[event_type])
             do = stack.pop()
-            do(event, stack)
-        except (KeyError, IndexError):
-            pass
+            try:
+                do(event, stack)
+            except HTTPError as error:
+                error.type = event.type
+                event_server.emit(error, event.client)
 
     def __init__(self, *args, **kwargs):
         raise InitError("EventRouter is not to be initialized.")
