@@ -12,11 +12,10 @@ Exports:
 
 """
 
-from tornado.escape import json_encode
 from .socket import SocketServer
 from .event import (SocketConnectEvent, SocketDisconnectEvent,
                     SocketDataEvent)
-
+import logging
 
 class EventServer(SocketServer):
     """Threaded WebSocket server for handling socket requests.
@@ -28,45 +27,7 @@ class EventServer(SocketServer):
         No initialization required.
 
     Usage:
-        # Best used with EventRouter. See server.router for details.
-        from server.router import EventRouter as router
-        from server.event import SocketServerEvent
-        from server import EventServer
-
-        def display_incoming_message(event, template):
-            print format(template, event.client, event.data.message)
-        def send_new_message(event):
-            EventServer.broadcast(
-                SocketServerEvent('chat-message',
-                                  from=event.client,
-                                  message=event.data.message),
-                exclude=[event.client])
-        def connection_notice(event, disconnected=False):
-            dis = 'dis' if disconnected else ''
-            message = format("%s has %sconnected., event.client, dis)
-            print message
-            EventServer.broadcast(
-                SocketServerEvent('chat-message',
-                                  from='SERVER',
-                                  message=message),
-                exclude=[event.client])
-            message = 'Goodbye.' if disconnected else 'Welcome to the server.'
-            EventServer.emit(
-                SocketServerEvent('chat-message',
-                                  from='SERVER',
-                                  message=message),
-                event.client)
-        router.on('chat-event', send_new_message)
-        router.on('chat-event', display_incoming_message, "%s: %s")
-        router.on('connect', connection_notice)
-        router.on('disconnect', connection_notice, True)
-        router.listen_async(get=EventServer.get_event,
-            empty=(lambda: not EventServer.has_events()))
-        try:
-            while True:
-                pass
-        except KeyboardInterrupt:
-            router.listen_async_stop()
+        ...
 
     Class Methods:
         emit -- Emit data to specified client.
@@ -78,24 +39,26 @@ class EventServer(SocketServer):
     """
 
     @classmethod
-    def handle(cls, client_id, message):
+    def handle(cls, client, message):
         if message is 'connect':
-            e = SocketConnectEvent(client_id)
+            e = SocketConnectEvent(client.uid, client.request.remote_ip)
         elif message is 'disconnect':
-            e = SocketDisconnectEvent(client_id)
+            e = SocketDisconnectEvent(client.uid, client.request.remote_ip)
         else:
-            e = SocketDataEvent(client_id, message)
+            e = SocketDataEvent(client.uid, client.request.remote_ip, message)
         cls._out_queue.put(e)
 
     @classmethod
     def emit(cls, socket_event, client_id):
         message = socket_event.json()
-        super(EventServer, cls).emit(client_id, message)
+        logging.debug("Emitting: " + message)
+        logging.debug("\tto: " + client_id)
+        super(EventServer, cls).emit(message, client_id)
 
     @classmethod
     def broadcast(cls, socket_event, include=None, exclude=None):
         message = socket_event.json()
-        super(EventServer, cls).broadcast(include, exclude, message)
+        super(EventServer, cls).broadcast(message, include, exclude)
 
     @classmethod
     def is_empty(cls):

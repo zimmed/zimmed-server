@@ -10,7 +10,7 @@ Exports:
     :class SocketServerEvent
 """
 
-from core.dotdict import ImmutableDotDict
+from core.dotdict import DotDict
 from tornado.escape import json_decode, json_encode
 
 
@@ -31,17 +31,18 @@ class SocketEvent(object):
         json -- Get JSON representation of event.
     """
 
-    def __init__(self, etype, client_id, **kwargs):
+    def __init__(self, etype, client_id, client_ip, **kwargs):
         self.type, self.client, self.data = etype, client_id, {}
+        self.client_ip = client_ip
         if kwargs:
             self.data.update(kwargs)
-        self.data = ImmutableDotDict(self.data)
+        self.data = DotDict(self.data)
         self.__locked = True
 
     def __setattr__(self, key, value):
         try:
-            if self.__locked:
-                raise ValueError("Cannot assign to event object.")
+            if hasattr(self, key) and self.__locked:
+                raise ValueError("Cannot assign to existing event attribute.")
         except AttributeError:
             pass
         finally:
@@ -49,9 +50,9 @@ class SocketEvent(object):
 
     def json(self):
         d = dict(self.data)
-        self.data['type'] = self.type
+        d['type'] = self.type
         if self.client:
-            self.data['client'] = self.client
+            d['client'] = self.client
         return json_encode(d)
 
     def ok_response(self, **kwargs):
@@ -63,30 +64,46 @@ class SocketEvent(object):
 
 class SocketConnectEvent(SocketEvent):
 
-    def __init__(self, client_id):
-        super(SocketConnectEvent, self).__init__('connect', client_id)
+    def __init__(self, client_id, client_ip):
+        super(SocketConnectEvent, self).__init__('connect', client_id, client_ip)
 
 
 class SocketDisconnectEvent(SocketEvent):
 
-    def __init__(self, client_id):
-        super(SocketDisconnectEvent, self).__init__('disconnect', client_id)
+    def __init__(self, client_id, client_ip):
+        super(SocketDisconnectEvent, self).__init__('disconnect', client_id, client_ip)
 
 
 class SocketDataEvent(SocketEvent):
 
-    def __init__(self, client_id, message):
+    def __init__(self, client_id, client_ip, message):
         etype = 'invalid'
-        data = json_decode(message)
+        if isinstance(message, (str, basestring, unicode)):
+            data = _native_strings(json_decode(message))
+
+        else:
+            data = message
         if 'type' in data.iterkeys():
             etype = data['type']
             del data['type']
-        super(SocketDataEvent, self).__init__(etype, client_id, **data)
+        super(SocketDataEvent, self).__init__(etype, client_id, client_ip, **data)
 
 
 class SocketServerEvent(SocketEvent):
 
     def __init__(self, etype, **kwargs):
         kwargs['status'] = 200
-        super(SocketServerEvent, self).__init__(etype, None, **kwargs)
+        super(SocketServerEvent, self).__init__(etype, None, None, **kwargs)
 
+
+def _native_strings(obj):
+    if isinstance(obj, (str, unicode, basestring)):
+        return str(obj)
+    if isinstance(obj, dict):
+        new_obj = {}
+        for k, v in obj.iteritems():
+            new_obj[str(k)] = _native_strings(v)
+        return new_obj
+    if isinstance(obj, list):
+        return [_native_strings(x) for x in obj]
+    return obj

@@ -9,9 +9,10 @@ Exports:
 
 from core.decorators import classproperty
 from core.exceptions import InitError
-from .exception import HTTPError
+from .exception import HTTPError, BadRequestError
 import threading
 import time
+import logging
 
 
 class EventRouter(object):
@@ -51,15 +52,10 @@ class EventRouter(object):
 
         def __call__(self, event, stack=None):
 
-            def no_next(_):
-                pass
-
-            def do_next(e):
-                do = stack.pop()
-                do(e, stack)
-
-            self.method.next = do_next if stack else no_next
             self.method(event, *self.args)
+            if stack:
+                do = stack.pop()
+                do(event, stack)
 
     @classproperty
     def listening(cls):
@@ -117,16 +113,20 @@ class EventRouter(object):
         :param t_event: threading.Event | None -- Optional event for
             monitoring threaded loop state.
         """
-        get = event_server.get_event
-        empty = event_server.is_empty
-        cls._listening = True
-        while cls._listening:
-            if not empty():
-                event = get()
-                cls.handle(event, event_server)
-            time.sleep(0.01)
-        if t_event:
-            t_event.set()
+        try:
+            get = event_server.get_event
+            empty = event_server.is_empty
+            cls._listening = True
+            while cls._listening:
+                if not empty():
+                    event = get()
+                    cls.handle(event, event_server)
+                time.sleep(0.01)
+            if t_event:
+                t_event.set()
+        except KeyboardInterrupt:
+            cls._listening = False
+            return 0
 
     @classmethod
     def listen_async(cls, event_server):
@@ -160,8 +160,13 @@ class EventRouter(object):
             try:
                 do(event, stack)
             except HTTPError as error:
-                error.type = event.type
+                error.type = event_type
                 event_server.emit(error, event.client)
+        else:
+            logging.warn('Uncaught event type: ' + event_type)
+            e = BadRequestError("Uncaught event.")
+            e.type = event_type
+            event_server.emit(e, event.client)
 
     def __init__(self, *args, **kwargs):
         raise InitError("EventRouter is not to be initialized.")

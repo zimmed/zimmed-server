@@ -18,6 +18,7 @@ import tornado.websocket
 import uuid
 import Queue
 import threading
+import time
 
 
 # noinspection PyAbstractClass
@@ -61,7 +62,6 @@ class SocketServer(object):
 
     _instance = None
     _thread = None
-    _in_queue = Queue.Queue()
     _out_queue = Queue.Queue()
 
     @classmethod
@@ -73,37 +73,34 @@ class SocketServer(object):
         return cls._out_queue.get()
 
     @classmethod
-    def handle(cls, client_id, message):
+    def handle(cls, client, message):
         pass
 
     @classmethod
     def on_connect(cls, client):
         logging.info("Client connected.")
         cls.get_instance().add_client(client)
-        cls.handle(client.uid, 'connect')
+        cls.handle(client, 'connect')
 
     @classmethod
     def on_disconnect(cls, client):
         logging.info("Client disconnected.")
         cls.get_instance().del_client(client)
-        cls.handle(client.uid, 'connect')
+        cls.handle(client, 'disconnect')
 
     @classmethod
     def on_message(cls, client, message):
-        logging.info("Received message: " + str(message))
-        cls.handle(client.uid, message)
+        logging.info("Received message.")
+        logging.debug("\t%s" % repr(message))
+        cls.handle(client, message)
 
     @classmethod
     def get_instance(cls, *args, **kwargs):
         return cls._instance or cls(*args, **kwargs)
 
     @classmethod
-    def emit(cls, client_id, message):
-        cls._in_queue.put({
-            'method': 'emit',
-            'client_id': client_id,
-            'message': message
-        })
+    def emit(cls, message, client_id):
+        cls._instance.send(client_id, message)
 
     @classmethod
     def broadcast(cls, message, include=None, exclude=None):
@@ -116,23 +113,19 @@ class SocketServer(object):
         elif exclude:
             clients = exclude
             ex = True
-        cls._in_queue.put({
-            'method': 'broadcast',
-            'clients': clients,
-            'exclude': ex,
-            'message': message
-        })
+        cls._instance.send_all(clients, message, ex)
 
     @classmethod
     def disconnect(cls, client_id):
-        cls._in_queue.put({
-            'method': 'disconnect',
-            'client_id': client_id
-        })
+        cls._instance.close_client(client_id)
 
     @classmethod
     def start(cls, *args, **kwargs):
         if not cls.is_listening():
+            if 'log_level' in kwargs:
+                logging.basicConfig(level=kwargs['log_level'])
+                del kwargs['log_level']
+            logging.info("Starting SocketServer...")
             ref = cls.get_instance(*args, **kwargs)
             cls._thread = threading.Thread(target=cls.listen_loop,
                                            args=(ref,))
@@ -141,10 +134,14 @@ class SocketServer(object):
 
     @classmethod
     def stop(cls):
-        cls._in_queue.put({'method': 'kill'})
-        cls._thread.join()
-        cls._thread = None
-        logging.info("Stopping SocketServer...")
+        try:
+            logging.info("Stopping SocketServer...")
+            tornado.ioloop.IOLoop.current().stop()
+            time.sleep(1)
+            cls._thread = None
+            return 0
+        except KeyboardInterrupt:
+            return 1
 
     @classmethod
     def listen_loop(cls, ref):
@@ -153,21 +150,6 @@ class SocketServer(object):
             (r"/ws", ref.socket_handler)])
         ref.app.listen(ref.port)
         tornado.ioloop.IOLoop.current().start()
-        while ref.app:
-            if not cls._in_queue.empty():
-                action = cls._in_queue.get()
-                if type(action) is dict:
-                    if action['method'] is 'emit':
-                        ref.send(action['client_id'],
-                                 action['message'])
-                    elif action['method'] is 'broadcast':
-                        ref.send_all(action['clients'],
-                                     action['message'],
-                                     action['exclude'])
-                    elif action['method'] is 'disconnect':
-                        ref.close_client(action['client_id'])
-                    elif action['method'] is 'kill':
-                        ref.app = None
 
     def __init__(self, address='127.0.0.1', port='27016'):
         if self.__class__._instance:
@@ -182,6 +164,7 @@ class SocketServer(object):
 
     def send(self, client_id, message):
         client = self.get_client(client_id)
+        logging.debug("Sending back message: " + message)
         if client:
             client.write_message(message)
         else:
@@ -205,9 +188,9 @@ class SocketServer(object):
 
     def client_id(self, client):
         if not hasattr(client, 'uid'):
-            uid = uuid.uuid4()
+            uid = uuid.uuid4().hex
             while uid in self._clients:
-                uid = uuid.uuid4().hex()
+                uid = uuid.uuid4().hex
             client.uid = uid
         return client.uid
 

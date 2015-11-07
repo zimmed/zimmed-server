@@ -15,9 +15,9 @@ class HTTPError(Exception):
     def __init__(self, message, **kwargs):
         self.type = 'undefined'
         self.status = kwargs.get('status', self.__class__.STATUS)
-        self.title = kwargs.get('title', self.__class__.STATUS)
+        self.title = kwargs.get('title', self.__class__.TITLE)
         self.description = kwargs.get('description', message)
-        self.standard = kwargs.get('standard', self.__class__.STATUS)
+        self.standard = kwargs.get('standard', self.__class__.STANDARD)
         self.data = kwargs.get('data', None)
         super(HTTPError, self).__init__(message)
 
